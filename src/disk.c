@@ -170,17 +170,25 @@ int disk_list_one(const char *dev_path)
         return 0;
     }
 
-    printf("  %-4s %-20s %-8s %12s  %-16s %s\n",
-           "#", "Device", "Type", "Size", "Label", "UUID");
-    printf("  %-4s %-20s %-8s %12s  %-16s %s\n",
-           "---", "--------------------", "--------", "------------", "----------------", "----");
+    printf("  %-4s %-20s %-8s %12s  %s\n",
+           "#", "Device", "Type", "Size", "Mount");
+    printf("  %-4s %-20s %-8s %12s  %s\n",
+           "---", "--------------------", "--------", "------------", "-----");
 
     for (int i = 0; i < info.num_partitions; i++) {
         partition_info_t *p = &info.partitions[i];
         format_size(p->size, sz, sizeof(sz));
-        printf("  %-4d %-20s %-8s %12s  %-16s %s\n",
+
+        /* Show mountpoint; if none, show label (if any) */
+        const char *extra = "";
+        if (p->mountpoint[0])
+            extra = p->mountpoint;
+        else if (p->fs_label[0])
+            extra = p->fs_label;
+
+        printf("  %-4d %-20s %-8s %12s  %s\n",
                p->number, p->dev_path, fs_type_name(p->fs_type),
-               sz, p->fs_label, p->fs_uuid);
+               sz, extra);
     }
     printf("\n");
     return 0;

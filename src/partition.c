@@ -2,6 +2,7 @@
  * partition.c — partition table parsing (MBR + GPT) and filesystem detection
  */
 #include "common.h"
+#include <sys/sysmacros.h>
 
 /* ========================================================================= */
 /*  MBR structures                                                            */
@@ -233,7 +234,7 @@ int partition_scan(int fd, disk_info_t *info)
                 if (e->starting_lba == 0 || e->ending_lba == 0) continue;
 
                 partition_info_t *p = &info->partitions[pnum];
-                p->number = pnum + 1;
+                p->number = i + 1;  /* GPT entry index, matches kernel numbering */
                 p->offset = e->starting_lba * 512;
                 p->size   = (e->ending_lba - e->starting_lba + 1) * 512;
                 p->selected = true;
@@ -241,9 +242,9 @@ int partition_scan(int fd, disk_info_t *info)
 
                 /* Build device path */
                 if (needs_p)
-                    snprintf(p->dev_path, sizeof(p->dev_path), "%sp%d", disk_dev, pnum + 1);
+                    snprintf(p->dev_path, sizeof(p->dev_path), "%sp%d", disk_dev, (int)(i + 1));
                 else
-                    snprintf(p->dev_path, sizeof(p->dev_path), "%s%d", disk_dev, pnum + 1);
+                    snprintf(p->dev_path, sizeof(p->dev_path), "%s%d", disk_dev, (int)(i + 1));
 
                 /* Detect filesystem */
                 p->fs_type = detect_fs(fd, p->offset, p->fs_label,
@@ -252,7 +253,7 @@ int partition_scan(int fd, disk_info_t *info)
             }
             info->num_partitions = pnum;
             free(tbl);
-            return 0;
+            goto resolve_mounts;
         }
     }
 
@@ -344,5 +345,130 @@ int partition_scan(int fd, disk_info_t *info)
     }
 
     info->num_partitions = pnum;
+
+resolve_mounts:
+    /* Resolve mountpoints from /proc/mounts.
+     * For LVM partitions, also check /dev/mapper/ and /dev/dm- entries
+     * to find mountpoints of LVs that reside on this PV. */
+    {
+        int nparts = info->num_partitions;
+        FILE *fp = fopen("/proc/mounts", "r");
+        if (fp) {
+            char mline[1024];
+            while (fgets(mline, sizeof(mline), fp)) {
+                char mdev[512], mpoint[512];
+                if (sscanf(mline, "%511s %511s", mdev, mpoint) != 2) continue;
+
+                int pi;
+                for (pi = 0; pi < nparts; pi++) {
+                    partition_info_t *p = &info->partitions[pi];
+                    if (p->mountpoint[0]) continue; /* already found */
+
+                    /* Direct match: /dev/sda1 mounted at /boot */
+                    if (strcmp(mdev, p->dev_path) == 0) {
+                        strncpy(p->mountpoint, mpoint, sizeof(p->mountpoint) - 1);
+                    }
+                }
+            }
+            fclose(fp);
+        }
+
+        /* For LVM partitions: find dm device mountpoints. */
+        {
+            int pi;
+            for (pi = 0; pi < nparts; pi++) {
+                partition_info_t *p = &info->partitions[pi];
+                if (p->fs_type != FS_LVM) continue;
+
+                /* Use dmsetup table to find LVs on this partition */
+                FILE *dmfp = popen("dmsetup table 2>/dev/null", "r");
+                if (!dmfp) continue;
+
+                struct stat pst;
+                if (stat(p->dev_path, &pst) < 0) { pclose(dmfp); continue; }
+
+                char dline[1024];
+                char lv_mounts[MAX_PATH_LEN];
+                int lv_mounts_len = 0;
+                lv_mounts[0] = '\0';
+
+                while (fgets(dline, sizeof(dline), dmfp)) {
+                    char dmname[128];
+                    uint64_t d1, d2;
+                    char mtype[32];
+                    unsigned dmaj, dmin;
+                    uint64_t d3;
+
+                    char *colon = strchr(dline, ':');
+                    if (!colon) continue;
+                    size_t nlen = (size_t)(colon - dline);
+                    if (nlen >= sizeof(dmname)) nlen = sizeof(dmname) - 1;
+                    memcpy(dmname, dline, nlen);
+                    dmname[nlen] = '\0';
+
+                    if (sscanf(colon + 1, " %llu %llu %31s %u:%u %llu",
+                               (unsigned long long *)&d1, (unsigned long long *)&d2,
+                               mtype, &dmaj, &dmin, (unsigned long long *)&d3) != 6)
+                        continue;
+                    if (strcmp(mtype, "linear") != 0) continue;
+                    if (makedev(dmaj, dmin) != pst.st_rdev) continue;
+
+                    /* This LV is on our partition. Find its mountpoint. */
+                    char lv_dev[MAX_PATH_LEN];
+                    snprintf(lv_dev, sizeof(lv_dev), "/dev/mapper/%s", dmname);
+
+                    FILE *mfp = fopen("/proc/mounts", "r");
+                    if (!mfp) continue;
+                    char ml2[1024];
+                    while (fgets(ml2, sizeof(ml2), mfp)) {
+                        char md[512], mp[512];
+                        if (sscanf(ml2, "%511s %511s", md, mp) != 2) continue;
+                        if (strcmp(md, lv_dev) == 0) {
+                            /* Append to lv_mounts */
+                            int slen = (int)strlen(mp);
+                            if (lv_mounts_len > 0 && lv_mounts_len + slen + 1 < MAX_PATH_LEN) {
+                                lv_mounts[lv_mounts_len++] = ',';
+                            }
+                            if (lv_mounts_len + slen < MAX_PATH_LEN) {
+                                memcpy(lv_mounts + lv_mounts_len, mp, slen);
+                                lv_mounts_len += slen;
+                                lv_mounts[lv_mounts_len] = '\0';
+                            }
+                            break;
+                        }
+                    }
+                    fclose(mfp);
+
+                    /* Check if it's swap */
+                    {
+                        FILE *sfp = fopen("/proc/swaps", "r");
+                        if (sfp) {
+                            char sl[1024];
+                            while (fgets(sl, sizeof(sl), sfp)) {
+                                if (strncmp(sl, lv_dev, strlen(lv_dev)) == 0) {
+                                    const char *stag = "[SWAP]";
+                                    int slen = (int)strlen(stag);
+                                    if (lv_mounts_len > 0 && lv_mounts_len + slen + 1 < MAX_PATH_LEN)
+                                        lv_mounts[lv_mounts_len++] = ',';
+                                    if (lv_mounts_len + slen < MAX_PATH_LEN) {
+                                        memcpy(lv_mounts + lv_mounts_len, stag, slen);
+                                        lv_mounts_len += slen;
+                                        lv_mounts[lv_mounts_len] = '\0';
+                                    }
+                                    break;
+                                }
+                            }
+                            fclose(sfp);
+                        }
+                    }
+                }
+                pclose(dmfp);
+
+                if (lv_mounts_len > 0)
+                    strncpy(p->mountpoint, lv_mounts, sizeof(p->mountpoint) - 1);
+            }
+        }
+    }
+
     return 0;
 }

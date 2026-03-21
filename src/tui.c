@@ -153,12 +153,25 @@ static void tui_draw(const tui_state_t *st)
             disk->dev_path, disk->model[0] ? disk->model : "", sz, pt);
     row++;
 
+    /* Table — use absolute column positions for alignment */
+    /* Col positions:  Sel=3  Device=7  Type=28  Size=37  Mount=49  CopyMode=66 */
+    #define C_SEL   3
+    #define C_DEV   7
+    #define C_TYPE  28
+    #define C_SIZE  37
+    #define C_MNT   49
+    #define C_MODE  66
+
     /* Table header */
+    move_to(row, C_SEL);  fprintf(stderr, DIM "Sel" RESET);
+    move_to(row, C_DEV);  fprintf(stderr, DIM "Device" RESET);
+    move_to(row, C_TYPE); fprintf(stderr, DIM "Type" RESET);
+    move_to(row, C_SIZE); fprintf(stderr, DIM "Size" RESET);
+    move_to(row, C_MNT);  fprintf(stderr, DIM "Mount" RESET);
+    move_to(row, C_MODE); fprintf(stderr, DIM "Copy Mode" RESET);
+    row++;
     move_to(row++, 1);
-    fprintf(stderr, DIM "  %-3s %-20s %-8s %10s  %-16s %-12s" RESET,
-            "Sel", "Device", "Type", "Size", "Label", "Copy Mode");
-    move_to(row++, 1);
-    fprintf(stderr, DIM "  ──────────────────────────────────────────────────────────────────────" RESET);
+    fprintf(stderr, DIM "  ──────────────────────────────────────────────────────────────────────────" RESET);
 
     /* Partition rows */
     for (i = 0; i < disk->num_partitions; i++) {
@@ -168,19 +181,42 @@ static void tui_draw(const tui_state_t *st)
         move_to(row, 1);
         clear_line();
 
-        /* Highlight current row */
         bool is_current = (i == st->cursor_row &&
                           (st->cursor_col == COL_SELECT || st->cursor_col == COL_MODE));
 
-        /* Checkbox */
-        const char *chk;
-        if (st->cursor_col == COL_SELECT && i == st->cursor_row)
-            chk = p->selected ? (REVERSE FG_GREEN " ✓ " RESET) : (REVERSE FG_RED " ✗ " RESET);
-        else
-            chk = p->selected ? (FG_GREEN " ✓ " RESET) : (FG_RED " ✗ " RESET);
+        /* Checkbox at C_SEL */
+        move_to(row, C_SEL);
+        if (st->cursor_col == COL_SELECT && i == st->cursor_row) {
+            if (p->selected) fprintf(stderr, REVERSE FG_GREEN " Y " RESET);
+            else             fprintf(stderr, REVERSE FG_RED   " N " RESET);
+        } else {
+            if (p->selected) fprintf(stderr, FG_GREEN " Y " RESET);
+            else             fprintf(stderr, FG_RED   " N " RESET);
+        }
 
-        /* Copy mode */
-        char mode_str[64];
+        /* Device at C_DEV */
+        move_to(row, C_DEV);
+        fprintf(stderr, "%-20s", p->dev_path);
+
+        /* Type at C_TYPE */
+        move_to(row, C_TYPE);
+        fprintf(stderr, "%-8s", fs_type_name(p->fs_type));
+
+        /* Size at C_SIZE */
+        move_to(row, C_SIZE);
+        fprintf(stderr, "%10s", sz);
+
+        /* Mount at C_MNT */
+        move_to(row, C_MNT);
+        const char *mount_or_label = "";
+        if (p->mountpoint[0])
+            mount_or_label = p->mountpoint;
+        else if (p->fs_label[0])
+            mount_or_label = p->fs_label;
+        fprintf(stderr, "%-16s", mount_or_label);
+
+        /* Copy mode at C_MODE */
+        move_to(row, C_MODE);
         if (p->selected) {
             const char *mode_text;
             if (p->copy_mode == 1 &&
@@ -192,18 +228,14 @@ static void tui_draw(const tui_state_t *st)
                 mode_text = "Full";
 
             if (st->cursor_col == COL_MODE && i == st->cursor_row)
-                snprintf(mode_str, sizeof(mode_str), REVERSE " %s " RESET, mode_text);
+                fprintf(stderr, REVERSE " %s " RESET, mode_text);
             else
-                snprintf(mode_str, sizeof(mode_str), " %s ", mode_text);
+                fprintf(stderr, " %s ", mode_text);
         } else {
-            snprintf(mode_str, sizeof(mode_str), DIM " --skip-- " RESET);
+            fprintf(stderr, DIM " --skip-- " RESET);
         }
 
-        fprintf(stderr, "%s %-20s %-8s %10s  %-16s%s",
-                chk, p->dev_path, fs_type_name(p->fs_type),
-                sz, p->fs_label, mode_str);
-
-        if (is_current) fprintf(stderr, "  ◄");
+        if (is_current) fprintf(stderr, "  " BOLD "<" RESET);
         row++;
     }
 

@@ -5,7 +5,7 @@
 #ifndef D2V_COMMON_H
 #define D2V_COMMON_H
 
-#define D2V_VERSION "1.2.1"
+#define D2V_VERSION "1.2.3"
 
 #include <stdint.h>
 #include <stddef.h>
@@ -73,6 +73,7 @@ typedef struct {
     char         fs_label[64];    /* filesystem label */
     char         fs_uuid[48];     /* filesystem UUID */
     char         dev_path[MAX_PATH_LEN]; /* e.g. /dev/sda1 */
+    char         mountpoint[MAX_PATH_LEN]; /* e.g. /boot, or "" if not mounted */
 
     /* user selection */
     bool         selected;        /* include in image? */
