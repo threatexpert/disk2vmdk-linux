@@ -307,6 +307,45 @@ int imaging_run(const imaging_config_t *cfg)
         return -1;
     }
 
+    /* Write imaging config file alongside the output (output_path + ".info") */
+    {
+        char info_path[MAX_PATH_LEN + 8];
+        snprintf(info_path, sizeof(info_path), "%s.info", cfg->output_path);
+        FILE *fp = fopen(info_path, "w");
+        if (fp) {
+            time_t now = time(NULL);
+            char timebuf[64];
+            struct tm *tm = localtime(&now);
+            strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S", tm);
+
+            fprintf(fp, "# disk2vmdk v" D2V_VERSION " imaging config\n");
+            fprintf(fp, "# Created: %s\n\n", timebuf);
+            fprintf(fp, "source_disk=%s\n", disk->dev_path);
+            fprintf(fp, "source_size=%llu\n", (unsigned long long)disk->size);
+            fprintf(fp, "source_model=%s\n", disk->model);
+            fprintf(fp, "partition_table=%s\n",
+                    disk->pt_type == PT_GPT ? "GPT" : (disk->pt_type == PT_MBR ? "MBR" : "unknown"));
+            fprintf(fp, "output_file=%s\n", cfg->output_path);
+            fprintf(fp, "output_format=%s\n", vdisk_format_name(cfg->format));
+            fprintf(fp, "num_partitions=%d\n\n", disk->num_partitions);
+
+            for (i = 0; i < disk->num_partitions; i++) {
+                partition_info_t *p = &disk->partitions[i];
+                fprintf(fp, "[partition.%d]\n", p->number);
+                fprintf(fp, "device=%s\n", p->dev_path);
+                fprintf(fp, "offset=%llu\n", (unsigned long long)p->offset);
+                fprintf(fp, "size=%llu\n", (unsigned long long)p->size);
+                fprintf(fp, "filesystem=%s\n", fs_type_name(p->fs_type));
+                fprintf(fp, "label=%s\n", p->fs_label);
+                fprintf(fp, "uuid=%s\n", p->fs_uuid);
+                fprintf(fp, "selected=%s\n", p->selected ? "yes" : "no");
+                fprintf(fp, "copy_mode=%s\n\n", p->copy_mode == 1 ? "used-only" : "full");
+            }
+            fclose(fp);
+            fprintf(stderr, "Config saved: %s\n", info_path);
+        }
+    }
+
     /* Initialize pipeline */
     pipeline_ctx_t ctx;
     memset(&ctx, 0, sizeof(ctx));
@@ -423,6 +462,12 @@ int imaging_run(const imaging_config_t *cfg)
         format_size(data_written, dw, sizeof(dw));
         fprintf(stderr, "Done. %s data written in %.1f seconds (%.0f MB/s)\n",
                 dw, elapsed, elapsed > 0 ? data_written / elapsed / 1048576.0 : 0);
+
+        /* Set output file read-only to prevent accidental modification */
+        if (cfg->output_path && cfg->output_path[0] != '-') {
+            chmod(cfg->output_path, 0444);
+            fprintf(stderr, "Output set to read-only: %s\n", cfg->output_path);
+        }
     } else {
         fprintf(stderr, "Imaging failed.\n");
     }

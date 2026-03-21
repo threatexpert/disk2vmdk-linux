@@ -18,6 +18,9 @@ A fast Linux disk imaging tool for incident response. Creates VMDK/VHD/VDI virtu
 # Build
 ./build.sh
 
+# Interactive mode (recommended)
+sudo ./disk2vmdk -i /dev/sda
+
 # List disks
 sudo ./disk2vmdk list
 
@@ -172,6 +175,34 @@ The tool follows a **fail-fast** philosophy for data integrity:
 - The error message tells you exactly which partition failed and suggests removing `--used-only` for that partition
 - You can always fall back to full copy mode for specific partitions while keeping used-only for others
 
+## Interactive Mode
+
+Run with `-i` for a terminal UI where you can visually select partitions, toggle copy modes, and set the output file — no need to remember command-line flags:
+
+```bash
+sudo ./disk2vmdk -i /dev/sda
+```
+
+```
+disk2vmdk v1.2.0 — Interactive Mode
+
+Disk: /dev/nvme0n1  VMware Virtual NVMe Disk  21.47 GB  MBR
+
+  Sel Device               Type         Size  Label            Copy Mode
+  ──────────────────────────────────────────────────────────────────────
+  ✓  /dev/nvme0n1p1       xfs        1.07 GB                  Used-only
+  ✓  /dev/nvme0n1p2       lvm       20.40 GB                  Used-only
+
+  Output file:  server.vmdk
+  Format:       [VMDK]   VHD    VDI    DD
+
+  ▶ START      QUIT
+
+  ↑↓ Navigate   Space: toggle select/mode   Tab: next field   Enter: confirm   q: quit
+```
+
+Use arrow keys and Tab to navigate between fields, Space to toggle selections, Enter to start.
+
 ## Project Structure
 
 ```
@@ -186,18 +217,23 @@ disk2vmdk-linux/
 │   ├── bitmap_xfs.c      XFS free space B+tree reader (raw on-disk parsing)
 │   ├── lvm.c             LVM PV/LV awareness via dmsetup
 │   ├── vdisk_writer.c    VMDK / VHD / VDI / DD output writer
-│   ├── imaging.c         Orchestrator: read source → bitmap filter → write output
-│   └── progress.c        Terminal progress bar
+│   ├── imaging.c         Orchestrator: reader thread → buffer queue → writer thread
+│   ├── progress.c        Terminal progress bar
+│   └── tui.c             Interactive terminal UI (pure ANSI, no ncurses)
 └── README.md
 ```
 
-~3,100 lines of C. No third-party dependencies.
+~3,500 lines of C. No third-party dependencies.
 
 ## License
 
 MIT
 
 ## Changelog
+
+### v1.2.0
+- **Interactive terminal UI**: `disk2vmdk -i <disk>` opens a visual interface for selecting partitions, copy modes, output file, and format — no flags to remember
+- Pure ANSI escape codes, no ncurses dependency
 
 ### v1.1.0
 - **Parallel read/write pipeline**: Reader thread reads disk and writer thread (main) writes to vdisk concurrently via buffer queue, improving throughput on fast storage

@@ -23,6 +23,7 @@ static void print_usage(void)
         "disk2vmdk v" D2V_VERSION " — Linux disk imaging tool\n"
         "\n"
         "Usage:\n"
+        "  disk2vmdk -i <disk>                              Interactive mode (recommended)\n"
         "  disk2vmdk list [<disk>]                          List all disks, or one disk in detail\n"
         "  disk2vmdk make <disk> -o <file> [options]        Create disk image\n"
         "\n"
@@ -36,6 +37,7 @@ static void print_usage(void)
         "  --buf-size <MB>        IO buffer size (default: 8)\n"
         "\n"
         "Examples:\n"
+        "  disk2vmdk -i /dev/sda\n"
         "  disk2vmdk list\n"
         "  disk2vmdk list /dev/nvme0n1\n"
         "  disk2vmdk make /dev/sda -o /mnt/usb/server.vmdk --exclude /dev/sda3 --used-only /dev/sda1\n"
@@ -275,6 +277,60 @@ static int cmd_make(int argc, char **argv)
 }
 
 /* ========================================================================= */
+/*  Command: interactive (-i)                                                 */
+/* ========================================================================= */
+
+static int cmd_interactive(int argc, char **argv)
+{
+    const char *disk_path = NULL;
+    const char *output_preset = NULL;
+    int i;
+
+    /* Parse arguments: look for device and -o */
+    for (i = 0; i < argc; i++) {
+        if ((strcmp(argv[i], "-o") == 0) && i + 1 < argc) {
+            output_preset = argv[++i];
+        } else if (looks_like_device(argv[i])) {
+            if (!disk_path) disk_path = argv[i];
+        }
+    }
+    if (!disk_path) {
+        fprintf(stderr, "Error: no disk device specified\n");
+        fprintf(stderr, "Usage: disk2vmdk -i <disk> [-o output.vmdk]\n");
+        return 1;
+    }
+
+    char fullpath[MAX_PATH_LEN];
+    disk_path = ensure_dev_path(disk_path, fullpath, sizeof(fullpath));
+
+    disk_info_t disk;
+    int fd = disk_open(disk_path, &disk);
+    if (fd < 0) return 1;
+
+    if (partition_scan(fd, &disk) < 0) {
+        fprintf(stderr, "Error: failed to scan partitions\n");
+        disk_close(fd);
+        return 1;
+    }
+
+    imaging_config_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+
+    int tui_rc = tui_run(fd, &disk, output_preset, &cfg);
+    if (tui_rc != 0) {
+        disk_close(fd);
+        return tui_rc < 0 ? 1 : 0;  /* -1=error, 1=cancelled (success exit) */
+    }
+
+    int rc = imaging_run(&cfg);
+
+    /* Free strdup'd output_path from tui */
+    free((void *)cfg.output_path);
+    disk_close(fd);
+    return rc;
+}
+
+/* ========================================================================= */
 /*  Main                                                                      */
 /* ========================================================================= */
 
@@ -290,7 +346,9 @@ int main(int argc, char **argv)
 
     const char *cmd = argv[1];
 
-    if (strcmp(cmd, "list") == 0)
+    if (strcmp(cmd, "-i") == 0 || strcmp(cmd, "--interactive") == 0)
+        return cmd_interactive(argc - 2, argv + 2);
+    else if (strcmp(cmd, "list") == 0)
         return cmd_list(argc - 2, argv + 2);
     else if (strcmp(cmd, "make") == 0)
         return cmd_make(argc - 1, argv + 1);

@@ -18,6 +18,7 @@ SOURCES="
     $SRC/vdisk_writer.c
     $SRC/imaging.c
     $SRC/progress.c
+    $SRC/tui.c
 "
 
 CFLAGS="-std=gnu99 -O2 -Wall -Wextra -Wno-unused-parameter -Wno-format-truncation -Wno-stringop-truncation -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64"

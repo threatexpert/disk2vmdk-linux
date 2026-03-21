@@ -5,7 +5,7 @@
 #ifndef D2V_COMMON_H
 #define D2V_COMMON_H
 
-#define D2V_VERSION "1.1.0"
+#define D2V_VERSION "1.2.1"
 
 #include <stdint.h>
 #include <stddef.h>
@@ -235,6 +235,16 @@ int  imaging_run(const imaging_config_t *cfg);
 
 void progress_print(uint64_t bytes_done, uint64_t bytes_total,
                     uint64_t data_written, double speed_mbps);
+
+/* ========================================================================= */
+/*  Module: tui.c — interactive terminal UI                                   */
+/* ========================================================================= */
+
+/* Run interactive TUI. output_preset: pre-fill output path (from -o), can be NULL.
+ * Populates out_cfg with user selections.
+ * Returns 0 = ready to image, 1 = cancelled, -1 = error. */
+int tui_run(int disk_fd, disk_info_t *disk, const char *output_preset,
+            imaging_config_t *out_cfg);
 
 /* ========================================================================= */
 /*  Utility                                                                   */
