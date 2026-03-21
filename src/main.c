@@ -20,7 +20,7 @@
 static void print_usage(void)
 {
     fprintf(stderr,
-        "disk2vmdk — Linux disk imaging tool\n"
+        "disk2vmdk v" D2V_VERSION " — Linux disk imaging tool\n"
         "\n"
         "Usage:\n"
         "  disk2vmdk list [<disk>]                          List all disks, or one disk in detail\n"

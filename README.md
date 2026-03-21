@@ -196,3 +196,17 @@ disk2vmdk-linux/
 ## License
 
 MIT
+
+## Changelog
+
+### v1.1.0
+- **Parallel read/write pipeline**: Reader thread reads disk and writer thread (main) writes to vdisk concurrently via buffer queue, improving throughput on fast storage
+- Version info displayed in `--help` output
+
+### v1.0.0
+- Initial release
+- VMDK / VHD / VDI / DD output formats
+- ext4 and XFS bitmap-aware sparse copy
+- LVM PV/LV support via dmsetup
+- GPT + MBR (with EBR logical partitions) support
+- Partition exclude and used-only modes
