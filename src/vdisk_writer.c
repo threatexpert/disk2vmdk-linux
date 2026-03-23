@@ -72,6 +72,12 @@ struct vdisk_writer {
     uint32_t    vdi_cur_block;
 };
 
+#if !defined(__GNUC__) || (__GNUC__ < 4 || (__GNUC__ == 4 && __GNUC_MINOR__ < 8))
+static inline unsigned short __builtin_bswap16(unsigned short x) {
+    return (x >> 8) | (x << 8);
+}
+#endif
+
 /* ========================================================================= */
 /*  Helper: zero check                                                        */
 /* ========================================================================= */

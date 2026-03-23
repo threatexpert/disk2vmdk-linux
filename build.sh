@@ -22,7 +22,7 @@ SOURCES="
 "
 
 CFLAGS="-std=gnu99 -O2 -Wall -Wextra -Wno-unused-parameter -Wno-format-truncation -Wno-stringop-truncation -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64"
-LDFLAGS="-lpthread"
+LDFLAGS="-lpthread -lrt"
 
 # Try static linking first (for portability)
 echo "Building disk2vmdk..."

@@ -23,15 +23,15 @@ static void print_usage(void)
         "disk2vmdk v" D2V_VERSION " — Linux disk imaging tool\n"
         "\n"
         "Usage:\n"
-        "  disk2vmdk -i <disk>                              Interactive mode (recommended)\n"
-        "  disk2vmdk list [<disk>]                          List all disks, or one disk in detail\n"
+        "  disk2vmdk -i <disk>                              Interactive mode\n"
+        "  disk2vmdk list [<disk>]                          List all disks\n"
         "  disk2vmdk make <disk> -o <file> [options]        Create disk image\n"
         "\n"
         "Options:\n"
         "  -o <file>              Output file (.vmdk .vhd .vdi .dd .raw .img)\n"
-        "  -o -                   Output DD/RAW to stdout (for piping)\n"
         "  -f <format>            Force format: vmdk, vhd, vdi, dd\n"
-        "  --exclude <P,...>      Exclude partitions (device path or number)\n"
+        "  -i                     Interactive mode (TUI for partition selection)\n"
+        "  --exclude <N,...>      Exclude partition numbers\n"
         "  --used-only <P,...>    Used-only mode for partitions (ext4/xfs)\n"
         "  --used-only-all        Used-only mode for all supported partitions\n"
         "  --buf-size <MB>        IO buffer size (default: 8)\n"
@@ -39,14 +39,7 @@ static void print_usage(void)
         "Examples:\n"
         "  disk2vmdk -i /dev/sda\n"
         "  disk2vmdk list\n"
-        "  disk2vmdk list /dev/nvme0n1\n"
-        "  disk2vmdk make /dev/sda -o /mnt/usb/server.vmdk --exclude /dev/sda3 --used-only /dev/sda1\n"
-        "  disk2vmdk make /dev/nvme0n1 -o backup.vhd --exclude nvme0n1p2 --used-only-all\n"
-        "  disk2vmdk make /dev/sda -o backup.vmdk --exclude 3 --used-only 1,2\n"
-        "\n"
-        "Pipe to network:\n"
-        "  disk2vmdk make /dev/sda -o - --exclude sda3 | nc 192.168.1.100 9000\n"
-        "  disk2vmdk make /dev/sda -o - --exclude sda3 | ssh user@host 'cat > /tmp/disk.dd'\n"
+        "  disk2vmdk make /dev/sda -o server.vmdk --exclude 3 --used-only 1,2\n"
     );
 }
 
@@ -341,10 +334,10 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    const char *cmd = argv[1];
+
     if (geteuid() != 0)
         fprintf(stderr, "Warning: not running as root — disk access may fail.\n\n");
-
-    const char *cmd = argv[1];
 
     if (strcmp(cmd, "-i") == 0 || strcmp(cmd, "--interactive") == 0)
         return cmd_interactive(argc - 2, argv + 2);

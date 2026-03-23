@@ -111,7 +111,11 @@ int ext4_read_bitmap(int fd, uint64_t part_offset, uint64_t part_size,
     if (!one_bm) { free(gdt); bitmap_free(bm); return -1; }
 
     uint64_t used_count = 0;
-    uint64_t block_idx = 0;
+    /* block_idx = absolute block number that bitmap bit 0 of the current group maps to.
+     * For block_size=1024, first_data_block=1, so group 0 starts at block 1.
+     * For block_size>=4096, first_data_block=0, group 0 starts at block 0. */
+    uint32_t first_data_block = rd32(sb_buf + 0x14);
+    uint64_t block_idx = first_data_block;
     uint32_t g;
 
     for (g = 0; g < num_groups; g++) {
@@ -178,6 +182,109 @@ int ext4_read_bitmap(int fd, uint64_t part_offset, uint64_t part_size,
 
     bm->used_blocks = used_count;
     free(one_bm);
+
+    /* ===================================================================
+     * Force-mark ext4 metadata blocks as used.
+     * The block bitmap only tracks data block allocation. Superblock
+     * backups, GDT backups, block/inode bitmaps and inode tables may
+     * appear "free" in the bitmap but are essential for the filesystem.
+     * Without this, used-only images of older ext4/ext3 (e.g. RHEL 6)
+     * may not boot.
+     * =================================================================== */
+    {
+        uint32_t inodes_per_group = rd32(sb_buf + 0x28);
+        uint32_t inode_size_raw = rd16(sb_buf + 0x58);
+        if (inode_size_raw == 0) inode_size_raw = 128;
+        uint32_t inode_table_blocks = (inodes_per_group * inode_size_raw + block_size - 1) / block_size;
+        uint32_t ro_compat = rd32(sb_buf + 0x64);
+        int sparse_super = (ro_compat & 0x0001) ? 1 : 0;
+        uint64_t gdt_blocks = ((uint64_t)num_groups * desc_size + block_size - 1) / block_size;
+
+        /* Force-mark all blocks before first_data_block as used.
+         * For block_size=1024, first_data_block=1, block 0 contains boot
+         * sector / GRUB data that ext4 doesn't manage but is essential. */
+        uint32_t first_data_block = rd32(sb_buf + 0x14);
+        {
+            uint64_t b;
+            for (b = 0; b <= first_data_block && b < total_blocks; b++)
+                bm->bitmap[b/8] |= (1u << (b%8));
+        }
+
+        uint64_t bg;
+        for (bg = 0; bg < num_groups; bg++) {
+            uint64_t group_start = bg * blocks_per_group;
+
+            /* Check if this group has superblock backup */
+            int has_sb = 0;
+            if (bg == 0 || bg == 1) {
+                has_sb = 1;
+            } else if (!sparse_super) {
+                has_sb = 1;
+            } else {
+                /* Powers of 3, 5, 7 */
+                uint64_t n;
+                int base_arr[] = {3, 5, 7};
+                int bi;
+                for (bi = 0; bi < 3; bi++) {
+                    n = base_arr[bi];
+                    while (n < bg) n *= base_arr[bi];
+                    if (n == bg) { has_sb = 1; break; }
+                }
+            }
+
+            if (has_sb) {
+                if (block_size == 1024) {
+                    if (bg == 0) {
+                        bm->bitmap[0] |= 0x03; /* blocks 0 and 1 */
+                        uint64_t b;
+                        for (b = 2; b < 2 + gdt_blocks; b++)
+                            bm->bitmap[b/8] |= (1u << (b%8));
+                    } else {
+                        uint64_t b;
+                        bm->bitmap[group_start/8] |= (1u << (group_start%8));
+                        for (b = group_start+1; b < group_start+1+gdt_blocks; b++)
+                            bm->bitmap[b/8] |= (1u << (b%8));
+                    }
+                } else {
+                    bm->bitmap[group_start/8] |= (1u << (group_start%8));
+                    uint64_t b;
+                    for (b = group_start+1; b < group_start+1+gdt_blocks; b++)
+                        bm->bitmap[b/8] |= (1u << (b%8));
+                }
+            }
+
+            /* Block bitmap, inode bitmap, inode table from GDT */
+            uint64_t d_off = bg * desc_size;
+            uint64_t bb_blk = rd32(gdt + d_off + 0x00);
+            uint64_t ib_blk = rd32(gdt + d_off + 0x04);
+            uint64_t it_blk = rd32(gdt + d_off + 0x08);
+            if (desc_size >= 64) {
+                bb_blk |= ((uint64_t)rd32(gdt + d_off + 0x20)) << 32;
+                ib_blk |= ((uint64_t)rd32(gdt + d_off + 0x24)) << 32;
+                it_blk |= ((uint64_t)rd32(gdt + d_off + 0x28)) << 32;
+            }
+
+            if (bb_blk > 0 && bb_blk < total_blocks)
+                bm->bitmap[bb_blk/8] |= (1u << (bb_blk%8));
+            if (ib_blk > 0 && ib_blk < total_blocks)
+                bm->bitmap[ib_blk/8] |= (1u << (ib_blk%8));
+            uint64_t b;
+            for (b = 0; b < inode_table_blocks; b++) {
+                uint64_t blk = it_blk + b;
+                if (blk > 0 && blk < total_blocks)
+                    bm->bitmap[blk/8] |= (1u << (blk%8));
+            }
+        }
+
+        /* Recount used blocks after metadata protection */
+        used_count = 0;
+        uint64_t bi;
+        for (bi = 0; bi < total_blocks; bi++) {
+            if ((bm->bitmap[bi/8] >> (bi%8)) & 1)
+                used_count++;
+        }
+        bm->used_blocks = used_count;
+    }
     free(gdt);
 
     char total_str[32], used_str[32];
