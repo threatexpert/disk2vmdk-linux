@@ -222,7 +222,7 @@ static void tui_draw(const tui_state_t *st)
             if (p->copy_mode == 1 &&
                 (p->fs_type == FS_EXT4 || p->fs_type == FS_EXT3 ||
                  p->fs_type == FS_EXT2 || p->fs_type == FS_XFS ||
-                 p->fs_type == FS_LVM))
+                 p->fs_type == FS_LVM || p->fs_type == FS_SWAP))
                 mode_text = "Used-only";
             else
                 mode_text = "Full";

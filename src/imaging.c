@@ -241,6 +241,12 @@ static void *reader_thread(void *arg)
             }
             bitmap_free(&bm);
         }
+        else if (part->copy_mode == 1 && part->fs_type == FS_SWAP) {
+            /* Swap used-only: write zeros (sparse formats skip it) */
+            fprintf(stderr, "  Partition #%d (swap): used-only — writing zeros\n", part->number);
+            if (reader_enqueue_zero(ctx, part->offset, part->size) < 0)
+                goto done;
+        }
         else {
             /* Full copy */
             if (reader_enqueue_range(ctx, part->offset, part->size) < 0)

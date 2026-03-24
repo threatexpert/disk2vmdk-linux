@@ -5,7 +5,7 @@
 #ifndef D2V_COMMON_H
 #define D2V_COMMON_H
 
-#define D2V_VERSION "1.2.6"
+#define D2V_VERSION "1.2.7"
 
 #include <stdint.h>
 #include <stddef.h>
