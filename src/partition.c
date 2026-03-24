@@ -259,8 +259,22 @@ int partition_scan(int fd, disk_info_t *info)
 
     /* Fall back to MBR */
     mbr_t *mbr = (mbr_t *)sector0;
-    if (mbr->signature != 0xAA55)
-        return 0; /* no partition table */
+    if (mbr->signature != 0xAA55) {
+        /* No partition table. Check if whole disk has a filesystem. */
+        partition_info_t *p = &info->partitions[0];
+        p->number = 0;
+        p->offset = 0;
+        p->size   = info->size;
+        p->selected = true;
+        p->copy_mode = 0;
+        strncpy(p->dev_path, disk_dev, sizeof(p->dev_path) - 1);
+        p->fs_type = detect_fs(fd, 0, p->fs_label, sizeof(p->fs_label),
+                               p->fs_uuid, sizeof(p->fs_uuid));
+        if (p->fs_type != FS_UNKNOWN) {
+            info->num_partitions = 1;
+        }
+        goto resolve_mounts;
+    }
 
     info->pt_type = PT_MBR;
     int pnum = 0;
