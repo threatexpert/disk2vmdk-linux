@@ -306,6 +306,18 @@ int imaging_run(const imaging_config_t *cfg)
         }
     }
 
+    /* Flush kernel caches to disk before reading.
+     * Without this, reading /dev/xxx may get stale data because the kernel's
+     * page cache and block device buffers haven't been written to disk yet. */
+    {
+        char flush_cmd[512];
+        snprintf(flush_cmd, sizeof(flush_cmd),
+                 "sync && blockdev --flushbufs %s 2>/dev/null; sync",
+                 disk->dev_path);
+        fprintf(stderr, "Flushing disk caches...\n");
+        system(flush_cmd);
+    }
+
     /* Create output vdisk */
     vdisk_writer_t *vw = vdisk_create(cfg->output_path, cfg->format, disk->size);
     if (!vw) {
